@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
-import { ShieldAlert, Users, Laptop, AlertTriangle, UserCog, UserPlus, Trash2, Edit, History, ShoppingCart, Key } from "lucide-react";
+import {
+  ShieldAlert, Users, Laptop, AlertTriangle, UserCog, UserPlus,
+  Trash2, Edit, History, ShoppingCart, Key, LogOut, RefreshCw
+} from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 export default function AdminDashboard() {
@@ -11,119 +14,66 @@ export default function AdminDashboard() {
   const [comprasDb, setComprasDb] = useState<any[]>([]);
   const [filtroCompras, setFiltroCompras] = useState("Todos");
   const [nuevoArticulo, setNuevoArticulo] = useState("");
-  
   const [loteCat, setLoteCat] = useState("docente");
   const [loteNombre, setLoteNombre] = useState("");
   const [loteCant, setLoteCant] = useState(1);
   const [excelRows, setExcelRows] = useState([{ id: 1, nombre: "", categoria: "docente" }]);
   const [altaMode, setAltaMode] = useState("lote");
-  const [adminRole, setAdminRole] = useState<boolean>(false);
+  const [adminRole, setAdminRole] = useState(false);
   const [altaRapida, setAltaRapida] = useState({ nombre: '', email: '', password: 'Escuela2025!' });
   const [altaRapidaMsg, setAltaRapidaMsg] = useState({ text: '', ok: false });
   const [altaRapidaLoading, setAltaRapidaLoading] = useState(false);
+  const [adminUser, setAdminUser] = useState<any>(null);
 
   const generarClave = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-    const pass = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    setAltaRapida(prev => ({ ...prev, password: pass }));
+    setAltaRapida(prev => ({ ...prev, password: Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') }));
   };
 
   const handleAltaRapida = async () => {
     setAltaRapidaMsg({ text: '', ok: false });
-    const emailNormalizado = altaRapida.email.trim().toLowerCase();
-    const nombreNormalizado = altaRapida.nombre.trim();
-    
-    if (!nombreNormalizado || !emailNormalizado || !altaRapida.password)
-      return setAltaRapidaMsg({ text: 'Completa todos los campos.', ok: false });
-      
-    // Generar nombre de usuario sugerido (parte antes del @)
-    const usernameSugerido = emailNormalizado.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+    const emailNorm = altaRapida.email.trim().toLowerCase();
+    const nombreNorm = altaRapida.nombre.trim();
+    if (!nombreNorm || !emailNorm || !altaRapida.password)
+      return setAltaRapidaMsg({ text: 'Completá todos los campos.', ok: false });
 
+    const usernameSug = emailNorm.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
     setAltaRapidaLoading(true);
     try {
       const { data: { session: adminSession } } = await supabase.auth.getSession();
-
-      // 1. Crear en Auth
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: emailNormalizado,
-        password: altaRapida.password,
-      });
-
-      // Manejo de errores de Auth más específico
-      const yaExiste = signUpError?.message?.toLowerCase().includes('already registered') || 
-                      signUpError?.message?.toLowerCase().includes('already in use') ||
-                      signUpError?.message?.toLowerCase().includes('email');
-      
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email: emailNorm, password: altaRapida.password });
+      const yaExiste = signUpError?.message?.toLowerCase().includes('already registered') || signUpError?.message?.toLowerCase().includes('already in use') || signUpError?.message?.toLowerCase().includes('email');
       const esRateLimit = signUpError?.message?.toLowerCase().includes('rate limit');
-
       if (signUpError && !yaExiste && !esRateLimit) throw signUpError;
-
-      // 2. Restaurar sesión admin (siempre necesario tras signUp)
-      if (adminSession) {
-        await supabase.auth.setSession({
-          access_token: adminSession.access_token,
-          refresh_token: adminSession.refresh_token,
-        });
-      }
-
-      // 3. Crear en la tabla pública usando el ID de Auth (si existe)
+      if (adminSession) await supabase.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
       const userId = signUpData?.user?.id;
-      const { error: dbError } = await supabase.from('usuarios').upsert({
-        id: userId, // VINCULO REAL POR ID
-        email: emailNormalizado,
-        nombre: nombreNormalizado,
-        nombre_usuario: usernameSugerido,
-        rol: 'docente',
-        primer_login: true,
-      }, { onConflict: 'email' });
-
+      const { error: dbError } = await supabase.from('usuarios').upsert({ id: userId, email: emailNorm, nombre: nombreNorm, nombre_usuario: usernameSug, rol: 'docente', primer_login: true }, { onConflict: 'email' });
       if (dbError) throw dbError;
-
-      let aviso = `✅ Docente creado. Usuario rápido: "${usernameSugerido}". Clave temporal: ${altaRapida.password}`;
-      
-      if (yaExiste) {
-        aviso = `⚠️ El correo ya estaba registrado. Se actualizó su perfil, pero si no conoce su clave deberá usar "Resetear Clave".`;
-      } else if (esRateLimit) {
-        aviso = `✅ Docente registrado en base de datos. (Nota: Hubo un límite de correos, verifique en Supabase).`;
-      }
-
+      let aviso = `✅ Docente creado. Usuario: "${usernameSug}" · Clave temporal: ${altaRapida.password}`;
+      if (yaExiste) aviso = `⚠️ El correo ya estaba registrado. Se actualizó su perfil.`;
+      else if (esRateLimit) aviso = `✅ Docente registrado. (Nota: límite de correos alcanzado, verificá en Supabase).`;
       setAltaRapidaMsg({ text: aviso, ok: !yaExiste });
       if (!yaExiste) setAltaRapida({ nombre: '', email: '', password: 'Escuela2025!' });
-      fetchData(); // Recargar tabla
+      fetchData();
     } catch (e: any) {
       setAltaRapidaMsg({ text: e.message || 'Error al crear el docente.', ok: false });
-    } finally {
-      setAltaRapidaLoading(false);
-    }
+    } finally { setAltaRapidaLoading(false); }
   };
 
   const handleEliminarDocente = async (email: string, nombre: string) => {
-    const confirmar = window.confirm(
-      `⚠️ ¿Eliminar a "${nombre}" (${email})?
-
-Esto borrará su perfil y permisos del sistema. 
-IMPORTANTE: El acceso (login) de Supabase no se puede borrar desde aquí. El usuario seguirá existiendo en el sistema de autenticación pero no tendrá acceso a las funciones de la escuela.
-Esta acción NO se puede deshacer.`
-    );
-    if (!confirmar) return;
+    if (!confirm(`⚠️ ¿Eliminar a "${nombre}" (${email})?\n\nEsto borrará su perfil del sistema. Esta acción NO se puede deshacer.`)) return;
     try {
       const { error } = await supabase.from('usuarios').delete().eq('email', email);
       if (error) throw error;
-      // Refrescar lista
       const { data: uData } = await supabase.from('usuarios').select('*');
       if (uData) setUsuariosDb(uData);
-    } catch (e: any) {
-      alert('Error al eliminar: ' + (e.message || e));
-    }
+    } catch (e: any) { alert('Error al eliminar: ' + (e.message || e)); }
   };
-
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session?.user) {
-        window.location.hash = '#/login';
-        return;
-      }
+      if (!session?.user) { window.location.hash = '#/login'; return; }
+      setAdminUser(session.user);
       supabase.from('usuarios').select('rol').eq('email', session.user.email).single().then(({ data }) => {
         if (data?.rol === 'admin') setAdminRole(true);
         else window.location.hash = '#/docente';
@@ -132,218 +82,219 @@ Esta acción NO se puede deshacer.`
   }, []);
 
   const fetchData = async () => {
-    const { data: pData } = await supabase.from('pedidos').select('*').neq('estado', 'Devuelto');
-    if (pData) setPedidosPendientes(pData);
-
-    const { data: hData } = await supabase.from('pedidos').select('*').order('createdat', { ascending: false });
-    if (hData) setHistorialPedidos(hData);
-
-    const { data: uData } = await supabase.from('usuarios').select('*');
-    if (uData) setUsuariosDb(uData);
-
-    const { data: eData } = await supabase.from('equipos').select('*');
-    if (eData) setEquiposDb(eData);
-
-    const { data: cData } = await supabase.from('compras').select('*').order('created_at', { ascending: false });
-    if (cData) setComprasDb(cData);
+    const [pRes, hRes, uRes, eRes, cRes] = await Promise.all([
+      supabase.from('pedidos').select('*').neq('estado', 'Devuelto'),
+      supabase.from('pedidos').select('*').order('createdat', { ascending: false }),
+      supabase.from('usuarios').select('*'),
+      supabase.from('equipos').select('*'),
+      supabase.from('compras').select('*').order('created_at', { ascending: false }),
+    ]);
+    if (pRes.data) setPedidosPendientes(pRes.data);
+    if (hRes.data) setHistorialPedidos(hRes.data);
+    if (uRes.data) setUsuariosDb(uRes.data);
+    if (eRes.data) setEquiposDb(eRes.data);
+    if (cRes.data) setComprasDb(cRes.data);
   };
 
   useEffect(() => {
     fetchData();
-
-    // Suscripciones Realtime
     const channel = supabase.channel('admin-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'equipos' }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'compras' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'equipos' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'compras' }, fetchData)
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, []);
 
   const marcarEntregado = async (id: string) => {
-    try {
-      await supabase.from('pedidos').update({ estado: "Entregado" }).eq('id', id);
-    } catch(e) {
-      console.error(e);
-      alert("Error al marcar como entregado");
-    }
+    await supabase.from('pedidos').update({ estado: "Entregado" }).eq('id', id);
   };
 
   const handleGuardarLote = async () => {
     try {
       if (loteCant < 1) return;
-      const equipos = [];
-      const categoriaLabel = loteNombre.trim() || (loteCat === 'docente' ? 'Notebook Docente' : loteCat === 'alumnado' ? 'Notebook Alumno' : 'Equipo Aula');
-      const existentesDeCat = equiposDb.filter((e: any) => e.categoria === loteCat).length;
-      for (let i = 0; i < loteCant; i++) {
-        equipos.push({
-          nombre: `${categoriaLabel} ${existentesDeCat + i + 1}`,
-          categoria: loteCat,
-          estado: "Operativa",
-          numero: existentesDeCat + i + 1
-        });
-      }
-
+      const baseNombre = loteNombre.trim() || (loteCat === 'docente' ? 'Notebook Docente' : loteCat === 'alumnado' ? 'Notebook Alumno' : 'Equipo Aula');
+      const existentes = equiposDb.filter((e: any) => e.categoria === loteCat).length;
+      const equipos = Array.from({ length: loteCant }, (_, i) => ({
+        nombre: `${baseNombre} ${existentes + i + 1}`,
+        categoria: loteCat, estado: "Operativa", numero: existentes + i + 1
+      }));
       const { error } = await supabase.from('equipos').insert(equipos);
       if (error) throw error;
-
       alert("Lote generado exitosamente.");
       setLoteNombre("");
-    } catch(e) { console.error(e); alert("Error"); }
+    } catch { alert("Error al generar el lote."); }
   };
 
   const handleGuardarExcel = async () => {
     try {
       const validRows = excelRows.filter(r => r.nombre.trim());
-      if (validRows.length === 0) return alert("No hay filas válidas para guardar.");
-      
-      const equipos = validRows.map(row => ({
-        nombre: row.nombre,
-        categoria: row.categoria,
-        estado: "Operativa"
-      }));
-
-      const { error } = await supabase.from('equipos').insert(equipos);
+      if (!validRows.length) return alert("No hay filas válidas.");
+      const { error } = await supabase.from('equipos').insert(validRows.map(r => ({ nombre: r.nombre, categoria: r.categoria, estado: "Operativa" })));
       if (error) throw error;
-      
       alert("Equipos registrados exitosamente.");
-      setExcelRows([{ id: Date.now(), nombre: "", categoria: "notebook_docentes" }]);
-    } catch(e) { console.error(e); alert("Error"); }
+      setExcelRows([{ id: Date.now(), nombre: "", categoria: "docente" }]);
+    } catch { alert("Error al guardar."); }
   };
-
-  // handleAltaUsuario removed - registration is now self-service via the login screen
-
-
-  if (!adminRole) return <div className="container" style={{ textAlign: "center", marginTop: "10vh" }}>Verificando permisos de Administrador...</div>;
-
-  const usuariosPendientes = usuariosDb.filter(u => u.rol === 'pendiente');
-  const usuariosActivos = usuariosDb.filter(u => u.rol !== 'pendiente');
-
-  const comprasVisibles = comprasDb.filter(c => {
-    if (filtroCompras !== "Todos" && c.estado !== filtroCompras) return false;
-    if (c.estado === 'Recibido' && c.fecha_recibido) {
-      const fechaRec = new Date(c.fecha_recibido).getTime();
-      if (Date.now() - fechaRec > 7 * 24 * 60 * 60 * 1000) return false;
-    }
-    return true;
-  });
 
   const handleAgregarCompra = async () => {
     if (!nuevoArticulo.trim()) return;
-    try {
-      await supabase.from('compras').insert({ articulo: nuevoArticulo, estado: 'Falta Pedir' });
-      setNuevoArticulo("");
-    } catch(e) { console.error(e); alert("Error al agregar compra"); }
+    await supabase.from('compras').insert({ articulo: nuevoArticulo, estado: 'Falta Pedir' });
+    setNuevoArticulo("");
   };
 
   const handleEstadoCompra = async (id: string, nuevoEstado: string) => {
-    try {
-      const updateData: any = { estado: nuevoEstado };
-      if (nuevoEstado === 'Recibido') updateData.fecha_recibido = new Date().toISOString();
-      await supabase.from('compras').update(updateData).eq('id', id);
-    } catch(e) { console.error(e); }
+    const updateData: any = { estado: nuevoEstado };
+    if (nuevoEstado === 'Recibido') updateData.fecha_recibido = new Date().toISOString();
+    await supabase.from('compras').update(updateData).eq('id', id);
   };
 
   const handleResetPassword = async (email: string) => {
-    if(!confirm(`¿Enviar un correo a ${email} con un enlace para cambiar su contraseña?`)) return;
+    if (!confirm(`¿Enviar un correo de recuperación a ${email}?`)) return;
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email);
       if (error) throw error;
-      alert(`Correo oficial de recuperación enviado exitosamente a ${email}.`);
-    } catch(e: any) {
-      console.error(e);
-      alert(`Hubo un error al enviar el correo: ${e.message}`);
-    }
+      alert(`Correo enviado a ${email}.`);
+    } catch (e: any) { alert(`Error: ${e.message}`); }
   };
 
   const handleEliminarPedido = async (id: string, docente: string) => {
     if (!confirm(`¿Eliminar permanentemente el pedido de "${docente}"? Esta acción no se puede deshacer.`)) return;
     try {
       await supabase.from('pedidos').delete().eq('id', id);
-    } catch(e) { console.error(e); alert('Error al eliminar el pedido'); }
+    } catch { alert('Error al eliminar el pedido.'); }
+  };
+
+  if (!adminRole) return (
+    <div style={{ minHeight: "calc(100vh - 61px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center", color: "var(--text-muted)" }}>
+        <RefreshCw size={32} style={{ marginBottom: "1rem", animation: "spin 1s linear infinite" }} />
+        <p>Verificando permisos…</p>
+      </div>
+    </div>
+  );
+
+  const usuariosPendientes = usuariosDb.filter(u => u.rol === 'pendiente');
+  const usuariosActivos = usuariosDb.filter(u => u.rol !== 'pendiente');
+  const comprasVisibles = comprasDb.filter(c => {
+    if (filtroCompras !== "Todos" && c.estado !== filtroCompras) return false;
+    if (c.estado === 'Recibido' && c.fecha_recibido && Date.now() - new Date(c.fecha_recibido).getTime() > 7 * 24 * 60 * 60 * 1000) return false;
+    return true;
+  });
+
+  const sidebarItems = [
+    { key: 'alertas',   icon: <ShieldAlert size={17} />, label: 'Alertas de Cierre', badge: pedidosPendientes.filter(p => p.estado === 'Entregado').length || null },
+    { key: 'inventario', icon: <Laptop size={17} />,      label: 'Inventario' },
+    { key: 'pedidos',   icon: <Users size={17} />,        label: 'Pedidos Activos', badge: pedidosPendientes.length || null },
+    { key: 'historial', icon: <History size={17} />,      label: 'Historial' },
+    { key: 'usuarios',  icon: <UserCog size={17} />,      label: 'Personal', badge: usuariosPendientes.length || null },
+    { key: 'compras',   icon: <ShoppingCart size={17} />, label: 'Compras' },
+  ];
+
+  const labelStyle: React.CSSProperties = {
+    display: "block", marginBottom: "0.35rem", fontSize: "0.75rem",
+    fontWeight: "600", color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase"
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: "0.65rem 0.875rem", borderRadius: "0.5rem",
+    background: "rgba(0,0,0,0.3)", color: "white",
+    border: "1px solid var(--border)", fontFamily: "inherit", width: "100%"
   };
 
   return (
     <div className="container" style={{ maxWidth: "1400px" }}>
-      <header style={{ marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ marginBottom: "0.5rem" }}>Panel del Administrador</h1>
-          <p style={{ color: "var(--danger)", fontSize: "1.2rem", fontWeight: "600" }}>Modo Gestión Activo</p>
-        </div>
-      </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "250px 1fr", gap: "2rem" }}>
-        
+      {/* Page header */}
+      <div style={{ marginBottom: "2rem", paddingTop: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <p style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--primary-light)", marginBottom: "0.3rem" }}>
+            Panel de Gestión
+          </p>
+          <h1 style={{ fontSize: "1.8rem", fontWeight: "800", letterSpacing: "-0.5px" }}>Administrador</h1>
+        </div>
+        <button
+          onClick={() => supabase.auth.signOut().then(() => { window.location.hash = '#/login'; })}
+          className="btn btn-ghost"
+          style={{ gap: "0.5rem" }}
+        >
+          <LogOut size={15} /> Cerrar sesión
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: "1.5rem", alignItems: "start" }}>
+
         {/* Sidebar */}
-        <div className="glass-panel" style={{ padding: "1.5rem", alignSelf: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <button className={`btn ${activeTab === 'alertas' ? 'btn-danger' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'alertas' ? 'transparent' : undefined }} onClick={() => setActiveTab('alertas')}>
-              <ShieldAlert size={20} /> Alertas de Cierre
-            </button>
-            <button className={`btn ${activeTab === 'inventario' ? 'btn-primary' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'inventario' ? 'transparent' : undefined }} onClick={() => setActiveTab('inventario')}>
-              <Laptop size={20} /> Inventario CRUD
-            </button>
-            <button className={`btn ${activeTab === 'pedidos' ? 'btn-primary' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'pedidos' ? 'transparent' : undefined }} onClick={() => setActiveTab('pedidos')}>
-              <Users size={20} /> Pedidos Activos
-            </button>
-            <button className={`btn ${activeTab === 'historial' ? 'btn-primary' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'historial' ? 'transparent' : undefined }} onClick={() => setActiveTab('historial')}>
-              <History size={20} /> Historial Docentes
-            </button>
-            <button className={`btn ${activeTab === 'usuarios' ? 'btn-primary' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'usuarios' ? 'transparent' : undefined }} onClick={() => setActiveTab('usuarios')}>
-              <UserCog size={20} /> Personal / Usuarios
-            </button>
-            <button className={`btn ${activeTab === 'compras' ? 'btn-primary' : 'btn-secondary'} `} style={{ justifyContent: "flex-start", background: activeTab !== 'compras' ? 'transparent' : undefined }} onClick={() => setActiveTab('compras')}>
-              <ShoppingCart size={20} /> Lista de Compras
-            </button>
+        <div className="glass-panel" style={{ padding: "1rem" }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-subtle)", padding: "0.5rem 0.875rem", marginBottom: "0.25rem" }}>
+            Navegación
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+            {sidebarItems.map(item => (
+              <button
+                key={item.key}
+                className={`sidebar-btn ${activeTab === item.key ? 'active' : ''}`}
+                onClick={() => setActiveTab(item.key)}
+              >
+                {item.icon}
+                <span style={{ flex: 1 }}>{item.label}</span>
+                {item.badge ? (
+                  <span style={{ minWidth: "20px", height: "20px", borderRadius: "9999px", background: activeTab === item.key ? "rgba(99,102,241,0.25)" : "var(--danger-bg)", color: activeTab === item.key ? "var(--primary-light)" : "var(--danger)", fontSize: "0.7rem", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", marginTop: "1rem", paddingTop: "1rem" }}>
+            <div style={{ padding: "0.5rem 0.875rem" }}>
+              <p style={{ fontSize: "0.7rem", color: "var(--text-subtle)", marginBottom: "0.1rem" }}>Conectado como</p>
+              <p style={{ fontSize: "0.8rem", fontWeight: "600", color: "var(--text-muted)", wordBreak: "break-all" }}>{adminUser?.email}</p>
+            </div>
           </div>
         </div>
 
-        {/* Contenido Principal */}
+        {/* Main content */}
         <div>
-          
+
+          {/* ── ALERTAS ── */}
           {activeTab === "alertas" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem", color: "var(--danger)" }}>
-                <AlertTriangle size={28} /> 
-                Reporte de Faltantes — Equipos sin Devolver
-              </h2>
+              <div className="section-header">
+                <div className="section-title" style={{ color: "var(--danger)" }}>
+                  <AlertTriangle size={20} /> Equipos sin Devolver
+                </div>
+              </div>
 
               {pedidosPendientes.filter(p => p.estado === 'Entregado').length === 0 ? (
-                <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
-                  <ShieldAlert size={48} style={{ marginBottom: "1rem", opacity: 0.4 }} />
-                  <h3 style={{ marginBottom: "0.5rem" }}>Todo en orden</h3>
-                  <p>No hay equipos pendientes de devolución en este momento.</p>
+                <div className="empty-state">
+                  <ShieldAlert size={48} />
+                  <h3>Todo en orden</h3>
+                  <p>No hay equipos pendientes de devolución.</p>
                 </div>
               ) : (
                 <>
-                  <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: "0.75rem", padding: "1.25rem 1.5rem", marginBottom: "2rem" }}>
-                    <p style={{ margin: 0, fontSize: "1rem" }}>
-                      <strong>⚠️ Atención:</strong> Hay {pedidosPendientes.filter(p => p.estado === 'Entregado').length} equipo(s) retirados que aún no fueron devueltos.
-                    </p>
+                  <div className="alert alert-danger" style={{ marginBottom: "1.5rem" }}>
+                    ⚠️ Hay <strong>{pedidosPendientes.filter(p => p.estado === 'Entregado').length}</strong> equipo(s) retirados que aún no fueron devueltos.
                   </div>
-
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Docente Responsable</th>
-                        <th>Dispositivo</th>
-                        <th>Hora de Retiro</th>
-                        <th>Acción</th>
+                        <th>Docente</th><th>Dispositivo</th><th>Hora de retiro</th><th>Acción</th>
                       </tr>
                     </thead>
                     <tbody>
                       {pedidosPendientes.filter(p => p.estado === 'Entregado').map((p, i) => (
                         <tr key={p.id || i}>
-                          <td style={{ fontWeight: "bold" }}>{p.docente}</td>
+                          <td style={{ fontWeight: "600" }}>{p.docente}</td>
                           <td>{p.equipo}</td>
-                          <td>{p.inicio || '-'}</td>
+                          <td style={{ color: "var(--text-muted)" }}>{p.inicio || '—'}</td>
                           <td>
                             <button
                               className="btn btn-secondary"
                               onClick={() => window.location.href = `mailto:${p.docente}?subject=Aviso: Devolución de Dispositivo&body=Estimado/a docente,%0A%0AEl sistema indica que tiene en su poder el dispositivo "${p.equipo}".%0APor favor, devuélvalo a preceptoría.%0A%0AGracias.`}
-                              style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
                             >
                               📧 Contactar
                             </button>
@@ -357,218 +308,132 @@ Esta acción NO se puede deshacer.`
             </div>
           )}
 
-
+          {/* ── INVENTARIO ── */}
           {activeTab === "inventario" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-                <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <Laptop size={24} color="var(--primary)" /> 
-                  Gestión de Inventario (CRUD)
-                </h2>
+              <div className="section-header">
+                <div className="section-title">
+                  <Laptop size={20} color="var(--primary)" /> Gestión de Inventario
+                </div>
               </div>
 
-              {/* Selector de modo de alta */}
-              <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-                <button 
-                  className={`btn ${altaMode === "lote" ? "btn-primary" : "btn-secondary"}`} 
-                  onClick={() => setAltaMode("lote")}
-                  style={{ background: altaMode !== "lote" ? "var(--surface)" : undefined, padding: "0.5rem 1rem", fontSize: "0.9rem" }}>
-                  Carga Rápida en Lote
-                </button>
-                <button 
-                  className={`btn ${altaMode === "excel" ? "btn-primary" : "btn-secondary"}`} 
-                  onClick={() => setAltaMode("excel")}
-                  style={{ background: altaMode !== "excel" ? "var(--surface)" : undefined, padding: "0.5rem 1rem", fontSize: "0.9rem" }}>
-                  Modo Grilla (Estilo Excel)
-                </button>
+              {/* Mode selector */}
+              <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", background: "var(--surface-2)", padding: "0.35rem", borderRadius: "0.625rem", width: "fit-content" }}>
+                {[{ v: "lote", l: "Carga en lote" }, { v: "excel", l: "Grilla detallada" }].map(opt => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setAltaMode(opt.v)}
+                    style={{
+                      padding: "0.45rem 1rem", border: "none", borderRadius: "0.45rem", cursor: "pointer",
+                      fontFamily: "inherit", fontSize: "0.85rem", fontWeight: "600", transition: "all 0.15s",
+                      background: altaMode === opt.v ? "var(--primary)" : "transparent",
+                      color: altaMode === opt.v ? "white" : "var(--text-muted)",
+                      boxShadow: altaMode === opt.v ? "0 4px 12px var(--primary-glow)" : "none"
+                    }}
+                  >
+                    {opt.l}
+                  </button>
+                ))}
               </div>
 
               {altaMode === "lote" && (
-                <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "0.75rem" }}>
-                  <h3 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>Carga Rápida en Lote</h3>
+                <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "0.875rem" }}>
+                  <h3 style={{ marginBottom: "1.25rem", fontSize: "0.95rem", fontWeight: "700" }}>Carga Rápida en Lote</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "1rem", alignItems: "end" }}>
                     <div>
-                      <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Nombre Base (ej. Notebook Lenovo)</label>
-                      <input type="text" placeholder="Proyector Epson..." value={loteNombre} onChange={(e) => setLoteNombre(e.target.value)} style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)" }} />
+                      <label style={labelStyle}>Nombre base</label>
+                      <input type="text" placeholder="Ej. Notebook Lenovo..." value={loteNombre} onChange={e => setLoteNombre(e.target.value)} style={inputStyle} />
                     </div>
                     <div>
-                      <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Categoría</label>
-                      <input 
-                        type="text" 
-                        list="categorias-list"
-                        value={loteCat} 
-                        onChange={(e) => setLoteCat(e.target.value)} 
-                        placeholder="Ej. Robótica..."
-                        style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)" }} 
-                      />
-                       <datalist id="categorias-list">
-                         <option value="docente">Material Docente (Notebooks de Profesores)</option>
-                         <option value="alumnado">Material Alumnado (Notebooks de Carros)</option>
-                         <option value="aula">Material para Aula (Proyectores, Parlantes)</option>
-                       </datalist>
+                      <label style={labelStyle}>Categoría</label>
+                      <input type="text" list="categorias-list" value={loteCat} onChange={e => setLoteCat(e.target.value)} placeholder="docente / alumnado..." style={inputStyle} />
+                      <datalist id="categorias-list">
+                        <option value="docente" />
+                        <option value="alumnado" />
+                        <option value="aula" />
+                      </datalist>
                     </div>
                     <div>
-                      <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Cantidad a registrar</label>
-                      <input type="number" value={loteCant} onChange={(e) => setLoteCant(Number(e.target.value))} min="1" max="50" style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)" }} />
+                      <label style={labelStyle}>Cantidad</label>
+                      <input type="number" value={loteCant} onChange={e => setLoteCant(Number(e.target.value))} min="1" max="50" style={inputStyle} />
                     </div>
-                    <button className="btn btn-primary" onClick={handleGuardarLote} style={{ padding: "0.75rem 1.5rem" }}>Generar Lote</button>
+                    <button className="btn btn-primary" onClick={handleGuardarLote}>Generar</button>
                   </div>
-                  <p style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                    * Si agregas más de uno, el sistema auto-generará los IDs alfabéticamente.
-                  </p>
                 </div>
               )}
 
               {altaMode === "excel" && (
-                <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "0.75rem" }}>
+                <div style={{ marginBottom: "2rem", padding: "1.5rem", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "0.875rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                    <h3 style={{ fontSize: "1.1rem", margin: 0 }}>Carga Detallada (Como Excel)</h3>
-                     <button 
-                      className="btn btn-secondary" 
-                      onClick={() => setExcelRows([...excelRows, { id: Date.now(), nombre: "", categoria: "docente" }])}
-                      style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}>
-                      + Insertar Fila
+                    <h3 style={{ fontSize: "0.95rem", fontWeight: "700", margin: 0 }}>Carga Detallada</h3>
+                    <button className="btn btn-secondary" style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem" }} onClick={() => setExcelRows([...excelRows, { id: Date.now(), nombre: "", categoria: "docente" }])}>
+                      + Agregar fila
                     </button>
                   </div>
-                  
                   <table className="data-table" style={{ marginTop: 0 }}>
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Nombre / Etiqueta Exacta</th>
-                        <th>Categoría</th>
-                        <th></th>
-                      </tr>
-                    </thead>
+                    <thead><tr><th>#</th><th>Nombre / Etiqueta</th><th>Categoría</th><th></th></tr></thead>
                     <tbody>
                       {excelRows.map((row, index) => (
                         <tr key={row.id}>
-                          <td style={{ color: "var(--text-muted)" }}>{index + 1}</td>
-                          <td>
-                            <input 
-                              type="text" 
-                              placeholder="Ej. NB-Gobierno-2023-A" 
-                              value={row.nombre}
-                              onChange={(e) => setExcelRows(excelRows.map(r => r.id === row.id ? { ...r, nombre: e.target.value } : r))}
-                              style={{ width: "100%", padding: "0.5rem", background: "transparent", color: "white", border: "1px solid var(--border)", borderRadius: "0.25rem", fontFamily: "inherit" }} 
-                            />
-                          </td>
-                          <td>
-                            <input 
-                              type="text" 
-                              list="categorias-list"
-                              value={row.categoria}
-                              onChange={(e) => setExcelRows(excelRows.map(r => r.id === row.id ? { ...r, categoria: e.target.value } : r))}
-                              placeholder="Categoría"
-                              style={{ width: "100%", padding: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)", borderRadius: "0.25rem", fontFamily: "inherit" }}
-                            />
-                          </td>
-                          <td style={{ textAlign: "right" }}>
-                            <button 
-                              className="btn" 
-                              onClick={() => setExcelRows(excelRows.filter(r => r.id !== row.id))}
-                              style={{ padding: "0.4rem 0.6rem", background: "transparent", color: "var(--text-muted)", border: "none" }}
-                              onMouseOver={(e) => e.currentTarget.style.color = "var(--danger)"}
-                              onMouseOut={(e) => e.currentTarget.style.color = "var(--text-muted)"}
-                              title="Eliminar fila">
-                              <Trash2 size={16} />
+                          <td style={{ color: "var(--text-subtle)", width: "40px" }}>{index + 1}</td>
+                          <td><input type="text" placeholder="Ej. NB-Gobierno-2023-A" value={row.nombre} onChange={e => setExcelRows(excelRows.map(r => r.id === row.id ? { ...r, nombre: e.target.value } : r))} style={{ ...inputStyle, padding: "0.5rem 0.75rem" }} /></td>
+                          <td><input type="text" list="categorias-list" value={row.categoria} onChange={e => setExcelRows(excelRows.map(r => r.id === row.id ? { ...r, categoria: e.target.value } : r))} style={{ ...inputStyle, padding: "0.5rem 0.75rem" }} /></td>
+                          <td style={{ width: "50px" }}>
+                            <button className="btn btn-danger" style={{ padding: "0.4rem" }} onClick={() => setExcelRows(excelRows.filter(r => r.id !== row.id))}>
+                              <Trash2 size={14} />
                             </button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  
                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
-                    <button className="btn btn-primary" onClick={handleGuardarExcel} style={{ padding: "0.75rem 2rem" }}>
-                      Guardar Todas las Filas ({excelRows.length})
-                    </button>
+                    <button className="btn btn-primary" onClick={handleGuardarExcel}>Guardar {excelRows.length} fila(s)</button>
                   </div>
                 </div>
               )}
 
-              <h3 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>Equipos Registrados</h3>
-              
+              <h3 style={{ marginBottom: "1.25rem", fontSize: "0.95rem", fontWeight: "700" }}>Equipos Registrados</h3>
+
               {equiposDb.length === 0 ? (
-                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>No hay equipos registrados.</div>
+                <div className="empty-state"><Laptop size={48} /><h3>Sin equipos registrados</h3><p>Usá la carga en lote o la grilla para agregar equipos.</p></div>
               ) : [
-                { key: 'docente', label: '👨‍🏫 Material Docente', color: 'rgba(139, 92, 246, 0.15)', border: 'rgba(139, 92, 246, 0.4)' },
-                { key: 'alumnado', label: '🎒 Material Alumnado', color: 'rgba(14, 165, 233, 0.15)', border: 'rgba(14, 165, 233, 0.4)' },
-                { key: 'aula', label: '📽️ Material para Aula', color: 'rgba(16, 185, 129, 0.15)', border: 'rgba(16, 185, 129, 0.4)' },
+                { key: 'docente',  label: '👨‍🏫 Material Docente',  altKeys: ['notebook_docentes', 'Notebook Docente'], color: '#6366f1', border: 'rgba(99,102,241,0.2)'  },
+                { key: 'alumnado', label: '🎒 Material Alumnado', altKeys: ['notebook_alumnos', 'Notebook Alumno'],  color: '#06b6d4', border: 'rgba(6,182,212,0.2)'    },
+                { key: 'aula',     label: '📽️ Material de Aula',  altKeys: [],                                       color: '#22c55e', border: 'rgba(34,197,94,0.2)'    },
               ].map(cat => {
-                const equiposDeCat = equiposDb.filter((eq: any) => eq.categoria === cat.key || 
-                  (cat.key === 'docente' && (eq.categoria === 'notebook_docentes' || eq.categoria === 'Notebook Docente')) ||
-                  (cat.key === 'alumnado' && (eq.categoria === 'notebook_alumnos' || eq.categoria === 'Notebook Alumno'))
-                );
-                if (equiposDeCat.length === 0) return null;
+                const items = equiposDb.filter((eq: any) => eq.categoria === cat.key || cat.altKeys.includes(eq.categoria));
+                if (!items.length) return null;
                 return (
-                  <div key={cat.key} style={{ marginBottom: "2rem", border: `1px solid ${cat.border}`, borderRadius: "0.75rem", overflow: "hidden" }}>
-                    <div style={{ padding: "0.75rem 1.25rem", background: cat.color, fontWeight: "700", fontSize: "1rem" }}>
-                      {cat.label} <span style={{ fontWeight: "400", color: "var(--text-muted)", fontSize: "0.85rem" }}>({equiposDeCat.length} equipos)</span>
+                  <div key={cat.key} style={{ marginBottom: "1.5rem", border: `1px solid ${cat.border}`, borderRadius: "0.875rem", overflow: "hidden" }}>
+                    <div style={{ padding: "0.75rem 1.25rem", background: `rgba(${cat.color === '#6366f1' ? '99,102,241' : cat.color === '#06b6d4' ? '6,182,212' : '34,197,94'},0.08)`, fontWeight: "700", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      {cat.label}
+                      <span style={{ fontWeight: "400", color: "var(--text-muted)", fontSize: "0.8rem" }}>({items.length} equipos)</span>
                     </div>
                     <table className="data-table" style={{ margin: 0 }}>
-                      <thead>
-                        <tr>
-                          <th>ID / Nº Ref.</th>
-                          <th>Dispositivo</th>
-                          <th>Estado</th>
-                          <th>Comentarios</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>ID</th><th>Dispositivo</th><th>Estado</th><th>Comentarios</th><th></th></tr></thead>
                       <tbody>
-                        {equiposDeCat.map((eq: any) => (
+                        {items.map((eq: any) => (
                           <tr key={eq.id}>
-                            <td style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>{String(eq.id).slice(-8).toUpperCase()}</td>
+                            <td style={{ color: "var(--text-subtle)", fontSize: "0.75rem", fontFamily: "monospace" }}>{String(eq.id).slice(-8).toUpperCase()}</td>
                             <td style={{ fontWeight: "600" }}>{eq.nombre}</td>
                             <td>
-                              <select 
+                              <select
                                 value={eq.estado || 'Operativa'}
-                                onChange={async (e) => {
-                                  try {
-                                    await supabase.from('equipos').update({ estado: e.target.value }).eq('id', eq.id);
-                                  } catch(err) { console.error(err); alert("Error al cambiar estado"); }
-                                }}
-                                style={{ 
-                                  padding: "0.4rem", 
-                                  background: eq.estado === 'Operativa' ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)", 
-                                  color: eq.estado === 'Operativa' ? "var(--success)" : "var(--danger)", 
-                                  border: `1px solid ${eq.estado === 'Operativa' ? "var(--success)" : "var(--danger)"}`, 
-                                  borderRadius: "0.25rem", 
-                                  fontWeight: "bold",
-                                  fontFamily: "inherit" 
-                                }}>
+                                onChange={async e => { await supabase.from('equipos').update({ estado: e.target.value }).eq('id', eq.id); }}
+                                style={{ ...inputStyle, width: "auto", padding: "0.35rem 0.6rem", fontSize: "0.8rem", color: eq.estado === 'Operativa' ? "var(--success)" : "var(--danger)", background: eq.estado === 'Operativa' ? "var(--success-bg)" : "var(--danger-bg)", border: `1px solid ${eq.estado === 'Operativa' ? 'var(--success-border)' : 'var(--danger-border)'}`, fontWeight: "700" }}
+                              >
                                 <option value="Operativa">Operativa</option>
                                 <option value="En Reparación">En Reparación</option>
                                 <option value="Rota">Rota / Baja</option>
                               </select>
                             </td>
                             <td>
-                              <input 
-                                type="text"
-                                defaultValue={eq.comentario || ""}
-                                placeholder="Ej. Falla el teclado..."
-                                onBlur={async (e) => {
-                                  try {
-                                    await supabase.from('equipos').update({ comentario: e.target.value }).eq('id', eq.id);
-                                  } catch(err) { console.error(err); }
-                                }}
-                                style={{ width: "100%", padding: "0.4rem", background: "transparent", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "0.25rem", fontFamily: "inherit" }}
-                              />
+                              <input type="text" defaultValue={eq.comentario || ""} placeholder="Observaciones…" onBlur={async e => { await supabase.from('equipos').update({ comentario: e.target.value }).eq('id', eq.id); }} style={{ ...inputStyle, padding: "0.4rem 0.6rem", fontSize: "0.8rem", background: "transparent", border: "1px solid transparent" }} onFocus={e => (e.target.style.borderColor = "var(--border)")} />
                             </td>
-                            <td>
-                              <button 
-                                className="btn" 
-                                onClick={async () => {
-                                  if(confirm(`¿Eliminar ${eq.nombre}?`)) {
-                                    try {
-                                      await supabase.from('equipos').delete().eq('id', eq.id);
-                                    } catch(e) { console.error(e); }
-                                  }
-                                }}
-                                style={{ padding: "0.4rem", background: "transparent", color: "var(--danger)", border: "none" }}
-                                title="Eliminar equipo">
-                                <Trash2 size={16} />
+                            <td style={{ width: "50px" }}>
+                              <button className="btn btn-danger" style={{ padding: "0.4rem" }} onClick={async () => { if (confirm(`¿Eliminar ${eq.nombre}?`)) await supabase.from('equipos').delete().eq('id', eq.id); }}>
+                                <Trash2 size={14} />
                               </button>
                             </td>
                           </tr>
@@ -581,73 +446,45 @@ Esta acción NO se puede deshacer.`
             </div>
           )}
 
+          {/* ── PEDIDOS ACTIVOS ── */}
           {activeTab === "pedidos" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                <Users size={24} color="var(--primary)" /> 
-                Bandeja de Pedidos "En Vivo"
-              </h2>
-              <p style={{ color: "var(--text-muted)" }}>Aquí aparecerán (sincronizados con Supabase) los pedidos futuros que hagan los docentes desde su app.</p>
-              
+              <div className="section-header">
+                <div className="section-title"><Users size={20} color="var(--primary)" /> Pedidos en Vivo</div>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Sincronizado en tiempo real</span>
+              </div>
+
               {pedidosPendientes.length === 0 ? (
-                <div style={{ padding: "2rem", border: "1px dashed var(--border)", borderRadius: "0.75rem", marginTop: "1rem", textAlign: "center" }}>
-                  No hay pedidos nuevos por el momento.
-                </div>
+                <div className="empty-state"><Users size={48} /><h3>Sin pedidos activos</h3><p>Los nuevos pedidos aparecerán aquí automáticamente.</p></div>
               ) : (
-                <table className="data-table" style={{ marginTop: "1.5rem" }}>
-                  <thead>
-                    <tr>
-                      <th>Docente</th>
-                      <th>Fecha</th>
-                      <th>Horario</th>
-                      <th>Equipo Solicitado</th>
-                      <th>Estado</th>
-                      <th>Acción</th>
-                    </tr>
-                  </thead>
+                <table className="data-table">
+                  <thead><tr><th>Docente</th><th>Fecha</th><th>Horario</th><th>Equipo</th><th>Estado</th><th>Acciones</th></tr></thead>
                   <tbody>
                     {pedidosPendientes.map((p: any, i: number) => (
                       <tr key={p.id || i}>
                         <td style={{ fontWeight: "600" }}>{p.docente}</td>
-                        <td>{p.fecha}</td>
-                        <td>{p.inicio} - {p.fin}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{p.fecha}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{p.inicio} – {p.fin}</td>
                         <td>{p.equipo}</td>
                         <td>
-                          <span className={`badge ${p.estado === 'Entregado' ? 'badge-success' : 'badge-warning'}`}>
-                            {p.estado}
-                          </span>
+                          <span className={`badge ${p.estado === 'Entregado' ? 'badge-warning' : 'badge-primary'}`}>{p.estado}</span>
                         </td>
                         <td>
-                          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
                             {p.estado !== "Entregado" && (
-                              <button 
-                                className="btn btn-primary" 
-                                onClick={() => marcarEntregado(p.id)}
-                                style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--success)", border: "none" }}>
-                                ✓ Marcar Entregado
+                              <button className="btn btn-success" style={{ padding: "0.35rem 0.7rem", fontSize: "0.8rem" }} onClick={() => marcarEntregado(p.id)}>
+                                ✓ Entregado
                               </button>
                             )}
                             {p.estado !== "Devuelto" && (
-                              <button
-                                className="btn"
-                                onClick={async () => {
-                                  try {
-                                    await supabase.from('pedidos').update({ estado: 'Devuelto' }).eq('id', p.id);
-                                  } catch(e) { console.error(e); }
-                                }}
-                                style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--secondary)", color: "white", border: "none", borderRadius: "0.25rem" }}>
-                                ↩ Marcar Devuelto
+                              <button className="btn btn-secondary" style={{ padding: "0.35rem 0.7rem", fontSize: "0.8rem" }} onClick={async () => { await supabase.from('pedidos').update({ estado: 'Devuelto' }).eq('id', p.id); }}>
+                                ↩ Devuelto
                               </button>
                             )}
-                            <button 
-                              className="btn" 
-                              onClick={() => handleEliminarPedido(p.id, p.docente || 'desconocido')}
-                              style={{ padding: "0.4rem 0.6rem", background: "transparent", color: "var(--danger)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "0.25rem" }}
-                              title="Forzar eliminación del pedido">
-                              <Trash2 size={14} />
+                            <button className="btn btn-danger" style={{ padding: "0.35rem 0.5rem" }} onClick={() => handleEliminarPedido(p.id, p.docente || 'desconocido')}>
+                              <Trash2 size={13} />
                             </button>
                           </div>
-
                         </td>
                       </tr>
                     ))}
@@ -657,38 +494,27 @@ Esta acción NO se puede deshacer.`
             </div>
           )}
 
+          {/* ── HISTORIAL ── */}
           {activeTab === "historial" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                <History size={24} color="var(--primary)" /> 
-                Historial de Pedidos por Docente
-              </h2>
-              <p style={{ color: "var(--text-muted)" }}>Aquí se muestra el historial completo de todos los pedidos realizados, incluyendo los ya devueltos.</p>
-              
+              <div className="section-header">
+                <div className="section-title"><History size={20} color="var(--primary)" /> Historial de Pedidos</div>
+              </div>
+
               {historialPedidos.length === 0 ? (
-                <div style={{ padding: "2rem", border: "1px dashed var(--border)", borderRadius: "0.75rem", marginTop: "1rem", textAlign: "center" }}>
-                  No hay historial de pedidos.
-                </div>
+                <div className="empty-state"><History size={48} /><h3>Sin historial</h3><p>Los pedidos completados aparecerán aquí.</p></div>
               ) : (
-                <table className="data-table" style={{ marginTop: "1.5rem" }}>
-                  <thead>
-                    <tr>
-                      <th>Docente</th>
-                      <th>Fecha de Uso</th>
-                      <th>Horario</th>
-                      <th>Equipo Solicitado</th>
-                      <th>Estado Final</th>
-                    </tr>
-                  </thead>
+                <table className="data-table">
+                  <thead><tr><th>Docente</th><th>Fecha</th><th>Horario</th><th>Equipo</th><th>Estado</th></tr></thead>
                   <tbody>
                     {historialPedidos.map((p: any, i: number) => (
                       <tr key={p.id || i}>
                         <td style={{ fontWeight: "600" }}>{p.docente}</td>
-                        <td>{p.fecha}</td>
-                        <td>{p.inicio} - {p.fin}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{p.fecha}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{p.inicio} – {p.fin}</td>
                         <td>{p.equipo}</td>
                         <td>
-                          <span className={`badge ${p.estado === 'Devuelto' ? 'badge-success' : p.estado === 'Entregado' ? 'badge-primary' : 'badge-warning'}`}>
+                          <span className={`badge ${p.estado === 'Devuelto' ? 'badge-success' : p.estado === 'Entregado' ? 'badge-warning' : 'badge-primary'}`}>
                             {p.estado}
                           </span>
                         </td>
@@ -700,137 +526,92 @@ Esta acción NO se puede deshacer.`
             </div>
           )}
 
+          {/* ── COMPRAS ── */}
           {activeTab === "compras" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                <ShoppingCart size={24} color="var(--primary)" /> 
-                Gestión de Compras
-              </h2>
-              
-              <div style={{ display: "flex", gap: "1rem", marginBottom: "2rem" }}>
-                <input 
-                  type="text" 
-                  value={nuevoArticulo}
-                  onChange={e => setNuevoArticulo(e.target.value)}
-                  placeholder="Ej. 10x Cables HDMI, Pantalla táctil..."
-                  style={{ flex: 1, padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)" }} 
-                />
-                <button onClick={handleAgregarCompra} className="btn btn-primary" style={{ padding: "0.75rem 1.5rem" }}>Agregar a la Lista</button>
+              <div className="section-header">
+                <div className="section-title"><ShoppingCart size={20} color="var(--primary)" /> Lista de Compras</div>
               </div>
 
-              <div style={{ marginBottom: "1.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
+                <input type="text" value={nuevoArticulo} onChange={e => setNuevoArticulo(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAgregarCompra()} placeholder="Ej. 10x Cables HDMI, Pantalla táctil…" style={inputStyle} />
+                <button onClick={handleAgregarCompra} className="btn btn-primary" style={{ whiteSpace: "nowrap" }}>+ Agregar</button>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
                 {['Todos', 'Falta Pedir', 'Pedido', 'Comprado', 'Recibido'].map(f => (
-                  <button 
-                    key={f}
-                    onClick={() => setFiltroCompras(f)}
-                    className={`btn ${filtroCompras === f ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: filtroCompras !== f ? "var(--surface)" : undefined }}>
+                  <button key={f} onClick={() => setFiltroCompras(f)}
+                    style={{ padding: "0.35rem 0.875rem", border: `1px solid ${filtroCompras === f ? 'var(--primary)' : 'var(--border)'}`, borderRadius: "9999px", background: filtroCompras === f ? "rgba(99,102,241,0.12)" : "transparent", color: filtroCompras === f ? "var(--primary-light)" : "var(--text-muted)", cursor: "pointer", fontSize: "0.8rem", fontWeight: "600", fontFamily: "inherit", transition: "all 0.15s" }}>
                     {f}
                   </button>
                 ))}
               </div>
 
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Artículo / Herramienta</th>
-                    <th>Estado de Compra</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comprasVisibles.length === 0 ? (
-                     <tr><td colSpan={3} style={{ textAlign: "center", padding: "1rem", color: "var(--text-muted)" }}>No hay compras que mostrar para este filtro.</td></tr>
-                  ) : comprasVisibles.map(c => (
-                    <tr key={c.id}>
-                      <td style={{ fontWeight: "bold" }}>{c.articulo}</td>
-                      <td>
-                        <select 
-                          value={c.estado} 
-                          onChange={(e) => handleEstadoCompra(c.id, e.target.value)}
-                          style={{ width: "100%", padding: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)", borderRadius: "0.25rem", fontFamily: "inherit" }}>
-                          <option value="Falta Pedir">Falta Pedir</option>
-                          <option value="Pedido">Pedido</option>
-                          <option value="Comprado">Comprado</option>
-                          <option value="Recibido">Recibido</option>
-                        </select>
-                      </td>
-                      <td>
-                        <button 
-                          className="btn" 
-                          onClick={async () => {
-                            if(confirm(`¿Eliminar ${c.articulo}?`)) {
-                              await supabase.from('compras').delete().eq('id', c.id);
-                            }
-                          }}
-                          style={{ padding: "0.4rem", background: "transparent", color: "var(--danger)", border: "none" }}
-                          title="Eliminar registro">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p style={{ marginTop: "1rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                * Los artículos marcados como "Recibido" desaparecerán automáticamente después de 1 semana.
+              {comprasVisibles.length === 0 ? (
+                <div className="empty-state"><ShoppingCart size={48} /><h3>Sin artículos</h3><p>No hay compras para este filtro.</p></div>
+              ) : (
+                <table className="data-table">
+                  <thead><tr><th>Artículo</th><th>Estado</th><th></th></tr></thead>
+                  <tbody>
+                    {comprasVisibles.map(c => (
+                      <tr key={c.id}>
+                        <td style={{ fontWeight: "600" }}>{c.articulo}</td>
+                        <td>
+                          <select value={c.estado} onChange={e => handleEstadoCompra(c.id, e.target.value)} style={{ ...inputStyle, width: "auto", padding: "0.35rem 0.6rem", fontSize: "0.8rem" }}>
+                            <option value="Falta Pedir">Falta Pedir</option>
+                            <option value="Pedido">Pedido</option>
+                            <option value="Comprado">Comprado</option>
+                            <option value="Recibido">Recibido</option>
+                          </select>
+                        </td>
+                        <td style={{ width: "50px" }}>
+                          <button className="btn btn-danger" style={{ padding: "0.4rem" }} onClick={async () => { if (confirm(`¿Eliminar "${c.articulo}"?`)) await supabase.from('compras').delete().eq('id', c.id); }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p style={{ marginTop: "1rem", fontSize: "0.78rem", color: "var(--text-subtle)" }}>
+                * Los artículos "Recibido" desaparecen automáticamente después de 1 semana.
               </p>
             </div>
           )}
 
+          {/* ── USUARIOS ── */}
           {activeTab === "usuarios" && (
             <div className="glass-panel" style={{ padding: "2rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-                <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <UserCog size={24} color="var(--primary)" /> 
-                  Control de Personal
-                </h2>
-                <button className="btn btn-primary" style={{ padding: "0.5rem 1rem", fontSize: "0.95rem" }} onClick={() => document.getElementById('alta-rapida-form')?.scrollIntoView({ behavior: 'smooth' })}>
-                  <UserPlus size={18} /> Nuevo Usuario
+              <div className="section-header">
+                <div className="section-title"><UserCog size={20} color="var(--primary)" /> Control de Personal</div>
+                <button className="btn btn-primary" style={{ fontSize: "0.8rem", padding: "0.45rem 0.875rem" }} onClick={() => document.getElementById('alta-rapida-form')?.scrollIntoView({ behavior: 'smooth' })}>
+                  <UserPlus size={15} /> Nuevo Docente
                 </button>
               </div>
 
-              <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>Da de alta a nuevos docentes, edita sus permisos o dales de baja del plantel escolar.</p>
-
               {usuariosPendientes.length > 0 && (
-                <div style={{ marginBottom: "3rem" }}>
-                  <h3 style={{ color: "var(--warning)", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <AlertTriangle size={20} /> Usuarios Pendientes de Aprobación
-                  </h3>
+                <div style={{ marginBottom: "2rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+                    <AlertTriangle size={16} color="var(--warning)" />
+                    <span style={{ fontWeight: "700", fontSize: "0.9rem", color: "var(--warning)" }}>
+                      {usuariosPendientes.length} usuario(s) pendiente(s) de aprobación
+                    </span>
+                  </div>
                   <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Nombre y Apellido</th>
-                        <th>Correo Electrónico</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
+                    <thead><tr><th>Nombre</th><th>Correo</th><th>Acciones</th></tr></thead>
                     <tbody>
-                      {usuariosPendientes.map((u) => (
-                        <tr key={u.email} style={{ background: "rgba(245, 158, 11, 0.05)" }}>
-                          <td style={{ fontWeight: "600" }}>{u.nombre || "Sin Nombre"}</td>
+                      {usuariosPendientes.map(u => (
+                        <tr key={u.email} style={{ background: "var(--warning-bg)" }}>
+                          <td style={{ fontWeight: "600" }}>{u.nombre || "Sin nombre"}</td>
                           <td style={{ color: "var(--text-muted)" }}>{u.email}</td>
                           <td>
                             <div style={{ display: "flex", gap: "0.5rem" }}>
-                              <button 
-                                className="btn btn-primary" 
-                                onClick={async () => {
-                                  try {
-                                    await supabase.from('usuarios').update({ rol: 'docente' }).eq('email', u.email);
-                                  } catch(e) { console.error(e); }
-                                }}
-                                style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--success)" }}>
-                                Aprobar como Docente
+                              <button className="btn btn-success" style={{ padding: "0.35rem 0.75rem", fontSize: "0.8rem" }} onClick={async () => { await supabase.from('usuarios').update({ rol: 'docente' }).eq('email', u.email); }}>
+                                ✓ Aprobar
                               </button>
-                              <button 
-                                className="btn btn-secondary" 
-                                onClick={async () => {
-                                  try {
-                                    await supabase.from('usuarios').delete().eq('email', u.email);
-                                  } catch(e) { console.error(e); }
-                                }}
-                                style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", color: "var(--danger)" }}>
-                                <Trash2 size={16} /> Rechazar
+                              <button className="btn btn-danger" style={{ padding: "0.35rem 0.75rem", fontSize: "0.8rem" }} onClick={async () => { await supabase.from('usuarios').delete().eq('email', u.email); }}>
+                                <Trash2 size={13} /> Rechazar
                               </button>
                             </div>
                           </td>
@@ -841,125 +622,86 @@ Esta acción NO se puede deshacer.`
                 </div>
               )}
 
-              <h3 style={{ marginBottom: "1rem" }}>Personal Activo</h3>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Nombre y Apellido</th>
-                    <th>Correo Electrónico</th>
-                    <th>Tipo de Cuenta</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {usuariosActivos.length === 0 ? (
-                    <tr><td colSpan={4} style={{ textAlign: "center", padding: "1rem", color: "var(--text-muted)" }}>No hay usuarios (entra con una cuenta para registrarte)</td></tr>
-                  ) : usuariosActivos.map((u) => (
-                    <tr key={u.email}>
-                      <td style={{ fontWeight: "600" }}>{u.nombre || "Sin Nombre"}</td>
-                      <td style={{ color: "var(--text-muted)" }}>{u.email}</td>
-                      <td>
-                        <span className={`badge ${u.rol === 'admin' ? 'badge-warning' : 'badge-success'}`} style={u.rol === 'admin' ? { color: "var(--warning)", border: "1px solid var(--warning)" } : {}}>
-                          {u.rol === 'admin' ? 'Administrador' : 'Docente'}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                          <button 
-                            className="btn btn-secondary" 
-                            onClick={async () => {
-                              try {
-                                await supabase.from('usuarios').update({ rol: u.rol === 'admin' ? 'docente' : 'admin' }).eq('email', u.email);
-                              } catch(e) { console.error(e); }
-                            }}
-                            style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "rgba(255,255,255,0.1)" }}>
-                            <Edit size={16} /> Cambiar Rol
-                          </button>
-                          <button 
-                            className="btn" 
-                            onClick={() => handleResetPassword(u.email)}
-                            style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "transparent", color: "var(--warning)", border: "1px solid var(--warning)", borderRadius: "0.25rem" }}
-                            title="Enviar correo para cambiar contraseña">
-                            <Key size={16} /> Resetear Clave
-                          </button>
-                          {u.rol !== 'admin' && (
-                            <button 
-                              onClick={() => handleEliminarDocente(u.email, u.nombre || u.email)}
-                              style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "rgba(239,68,68,0.1)", color: "var(--danger)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "0.25rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.35rem" }}
-                              title="Eliminar docente del sistema">
-                              <Trash2 size={14} /> Eliminar
+              <h3 style={{ marginBottom: "1rem", fontSize: "0.95rem", fontWeight: "700" }}>Personal Activo</h3>
+              {usuariosActivos.length === 0 ? (
+                <div className="empty-state"><Users size={48} /><h3>Sin usuarios activos</h3></div>
+              ) : (
+                <table className="data-table">
+                  <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Acciones</th></tr></thead>
+                  <tbody>
+                    {usuariosActivos.map(u => (
+                      <tr key={u.email}>
+                        <td style={{ fontWeight: "600" }}>{u.nombre || "Sin nombre"}</td>
+                        <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{u.email}</td>
+                        <td>
+                          <span className={`badge ${u.rol === 'admin' ? 'badge-warning' : 'badge-info'}`}>
+                            {u.rol === 'admin' ? 'Admin' : 'Docente'}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                            <button className="btn btn-secondary" style={{ padding: "0.35rem 0.6rem", fontSize: "0.8rem" }} onClick={async () => { await supabase.from('usuarios').update({ rol: u.rol === 'admin' ? 'docente' : 'admin' }).eq('email', u.email); }}>
+                              <Edit size={13} /> Rol
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                            <button className="btn btn-ghost" style={{ padding: "0.35rem 0.6rem", fontSize: "0.8rem", color: "var(--warning)", borderColor: "var(--warning-border)" }} onClick={() => handleResetPassword(u.email)}>
+                              <Key size={13} /> Clave
+                            </button>
+                            {u.rol !== 'admin' && (
+                              <button className="btn btn-danger" style={{ padding: "0.35rem 0.5rem" }} onClick={() => handleEliminarDocente(u.email, u.nombre || u.email)}>
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
 
-              <div id="alta-rapida-form" style={{ marginTop: "2rem", padding: "1.5rem", borderTop: "1px solid var(--border)" }}>
-                <h3 style={{ marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <UserPlus size={20} color="var(--primary)" /> Alta Rápida de Docente
-                </h3>
-                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-                  Crea la cuenta con una clave temporal. El docente deberá cambiarla en su primer ingreso.
-                </p>
+              {/* Alta Rápida */}
+              <div id="alta-rapida-form" style={{ marginTop: "2rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border)" }}>
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <h3 style={{ fontSize: "0.95rem", fontWeight: "700", marginBottom: "0.3rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <UserPlus size={17} color="var(--primary)" /> Alta Rápida de Docente
+                  </h3>
+                  <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
+                    Crea la cuenta con una clave temporal. El docente deberá cambiarla en su primer ingreso.
+                  </p>
+                </div>
 
                 {altaRapidaMsg.text && (
-                  <div style={{ padding: "0.75rem 1rem", borderRadius: "0.5rem", border: `1px solid ${altaRapidaMsg.ok ? 'var(--success)' : 'var(--danger)'}`, background: altaRapidaMsg.ok ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: altaRapidaMsg.ok ? 'var(--success)' : 'var(--danger)', marginBottom: "1rem", fontSize: "0.9rem", fontWeight: altaRapidaMsg.ok ? "600" : "400" }}>
+                  <div className={`alert ${altaRapidaMsg.ok ? 'alert-success' : 'alert-danger'}`} style={{ marginBottom: "1.25rem" }}>
                     {altaRapidaMsg.text}
                   </div>
                 )}
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "1rem", alignItems: "end" }}>
                   <div>
-                    <label style={{ display: "block", marginBottom: "0.3rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Nombre Completo</label>
-                    <input
-                      type="text"
-                      placeholder="Prof. García, Luis"
-                      value={altaRapida.nombre}
-                      onChange={(e) => setAltaRapida({ ...altaRapida, nombre: e.target.value })}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)", fontFamily: "inherit" }}
-                    />
+                    <label style={labelStyle}>Nombre completo</label>
+                    <input type="text" placeholder="Prof. García, Luis" value={altaRapida.nombre} onChange={e => setAltaRapida({ ...altaRapida, nombre: e.target.value })} style={inputStyle} />
                   </div>
                   <div>
-                    <label style={{ display: "block", marginBottom: "0.3rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Email</label>
-                    <input
-                      type="email"
-                      placeholder="garcia@escuela.edu"
-                      value={altaRapida.email}
-                      onChange={(e) => setAltaRapida({ ...altaRapida, email: e.target.value })}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "white", border: "1px solid var(--border)", fontFamily: "inherit" }}
-                    />
+                    <label style={labelStyle}>Email</label>
+                    <input type="email" placeholder="garcia@escuela.edu" value={altaRapida.email} onChange={e => setAltaRapida({ ...altaRapida, email: e.target.value })} style={inputStyle} />
                   </div>
                   <div>
-                    <label style={{ display: "block", marginBottom: "0.3rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>Clave Temporal</label>
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <input
-                        type="text"
-                        value={altaRapida.password}
-                        onChange={(e) => setAltaRapida({ ...altaRapida, password: e.target.value })}
-                        style={{ flex: 1, padding: "0.75rem", borderRadius: "0.5rem", background: "var(--bg-dark)", color: "var(--warning)", border: "1px solid var(--warning)", fontFamily: "monospace", fontWeight: "bold" }}
-                      />
-                      <button onClick={generarClave} title="Generar clave aleatoria" style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", background: "rgba(245,158,11,0.15)", color: "var(--warning)", border: "1px solid var(--warning)", cursor: "pointer", fontSize: "1.1rem" }}>&#8635;</button>
+                    <label style={labelStyle}>Clave temporal</label>
+                    <div style={{ display: "flex", gap: "0.4rem" }}>
+                      <input type="text" value={altaRapida.password} onChange={e => setAltaRapida({ ...altaRapida, password: e.target.value })} style={{ ...inputStyle, flex: 1, fontFamily: "monospace", color: "var(--warning)", borderColor: "var(--warning-border)" }} />
+                      <button onClick={generarClave} title="Generar clave" style={{ padding: "0.5rem 0.7rem", borderRadius: "0.5rem", background: "var(--warning-bg)", color: "var(--warning)", border: "1px solid var(--warning-border)", cursor: "pointer", fontSize: "1rem" }}>⟳</button>
                     </div>
                   </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleAltaRapida}
-                    disabled={altaRapidaLoading}
-                    style={{ padding: "0.75rem 1.5rem", whiteSpace: "nowrap" }}>
-                    {altaRapidaLoading ? 'Creando...' : <><UserPlus size={16} /> Crear Docente</>}
+                  <button className="btn btn-primary" onClick={handleAltaRapida} disabled={altaRapidaLoading} style={{ whiteSpace: "nowrap" }}>
+                    {altaRapidaLoading ? 'Creando…' : <><UserPlus size={15} /> Crear</>}
                   </button>
                 </div>
               </div>
-
             </div>
           )}
 
         </div>
       </div>
-
     </div>
   );
 }

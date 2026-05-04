@@ -1,7 +1,29 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useNavigate } from "react-router-dom";
-import { LogIn, User, Lock } from "lucide-react";
+import { LogIn, Mail, Lock, User, UserPlus, Laptop2 } from "lucide-react";
+
+const InputField = ({
+  label, icon, type = "text", placeholder, value, onChange,
+}: { label: string; icon: React.ReactNode; type?: string; placeholder: string; value: string; onChange: (v: string) => void }) => (
+  <div>
+    <label style={{ display: "block", marginBottom: "0.45rem", fontSize: "0.8rem", fontWeight: "600", color: "var(--text-muted)", letterSpacing: "0.03em", textTransform: "uppercase" }}>
+      {label}
+    </label>
+    <div style={{ position: "relative" }}>
+      <span style={{ position: "absolute", left: "0.875rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)", display: "flex" }}>
+        {icon}
+      </span>
+      <input
+        type={type}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ paddingLeft: "2.75rem" }}
+      />
+    </div>
+  </div>
+);
 
 export default function Login() {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -18,91 +40,59 @@ export default function Login() {
     setError("");
     try {
       const inputEmail = email.trim();
-      if (!inputEmail || !password) throw new Error("Por favor ingresa usuario/correo y contraseña");
-      
-      let loginEmail = inputEmail;
+      if (!inputEmail || !password) throw new Error("Por favor ingresá usuario/correo y contraseña.");
 
-      // Si no tiene @, buscamos qué correo tiene este nombre de usuario
+      let loginEmail = inputEmail;
       if (!inputEmail.includes("@")) {
         const { data: searchData, error: searchError } = await supabase
-          .from('usuarios')
-          .select('email')
-          .eq('nombre_usuario', inputEmail.toLowerCase())
-          .single();
-
-        if (searchError || !searchData) {
-          throw new Error(`El usuario "${inputEmail}" no existe en el sistema.`);
-        }
+          .from('usuarios').select('email').eq('nombre_usuario', inputEmail.toLowerCase()).single();
+        if (searchError || !searchData) throw new Error(`El usuario "${inputEmail}" no existe en el sistema.`);
         loginEmail = searchData.email;
       }
 
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password
-      });
-
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
       if (authError) throw authError;
-      
+
       if (authData.user) {
-        const { data: userData } = await supabase
-          .from('usuarios')
-          .select('rol')
-          .eq('email', authData.user.email)
-          .single();
-          
+        const { data: userData } = await supabase.from('usuarios').select('rol').eq('email', authData.user.email).single();
         if (userData) {
           if (userData.rol === 'pendiente') {
-            setError("Tu cuenta está en revisión. El Administrador debe habilitar tu acceso.");
+            setError("Tu cuenta está en revisión. Un administrador debe habilitarte antes de que puedas ingresar.");
             await supabase.auth.signOut();
             return;
           }
-          if (userData.rol === 'admin') {
-            navigate("/admin");
-          } else {
-            navigate("/docente");
-          }
+          navigate(userData.rol === 'admin' ? "/admin" : "/docente");
         }
       }
     } catch (err: any) {
-      console.error(err);
       setError(err.message || "Credenciales incorrectas.");
     }
   };
 
   const handleEmailRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    setSuccessMsg("");
+    setError(""); setSuccessMsg("");
     try {
-      if (!email || !password || !nombre || !nombreUsuario) throw new Error("Por favor completa todos los campos.");
-      
-      // Chequear si el usuario ya existe para evitar errores raros de Supabase
-      const { data: existData } = await supabase.from('usuarios').select('email').eq('nombre_usuario', nombreUsuario.toLowerCase().replace(/\s/g, '')).single();
-      if (existData) throw new Error("Ese nombre de usuario ya está ocupado. Elige otro.");
+      if (!email || !password || !nombre || !nombreUsuario) throw new Error("Por favor completá todos los campos.");
 
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+      const { data: existData } = await supabase.from('usuarios').select('email')
+        .eq('nombre_usuario', nombreUsuario.toLowerCase().replace(/\s/g, '')).single();
+      if (existData) throw new Error("Ese nombre de usuario ya está ocupado. Elegí otro.");
 
+      const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
       if (authError) throw authError;
 
       if (authData.user) {
         const { error: dbError } = await supabase.from('usuarios').insert({
-          email: authData.user.email,
-          nombre: nombre,
+          email: authData.user.email, nombre,
           nombre_usuario: nombreUsuario.toLowerCase().replace(/\s/g, ''),
           rol: 'pendiente'
         });
-
         if (dbError) throw dbError;
-        
         setSuccessMsg("¡Cuenta creada! Un administrador debe autorizar tu acceso para poder ingresar.");
-        setIsRegistering(false);
-        setPassword("");
+        setIsRegistering(false); setPassword("");
       }
     } catch (err: any) {
-      console.error(err);
       setError(err.message || "Error al crear la cuenta.");
     }
   };
@@ -112,140 +102,116 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: window.location.origin + '/docente'
-        }
+        options: { redirectTo: window.location.origin + '/docente' }
       });
       if (error) throw error;
-      // El redireccionamiento es manejado por Supabase, el chequeo de rol se debería hacer en el componente que carga post-login.
-    } catch (err: any) {
+    } catch {
       setError("Error al iniciar sesión con Google.");
     }
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", position: "relative", overflow: "hidden" }}>
-      
-      {/* Decorative Background Elements */}
-      <div style={{ position: "absolute", top: "10%", left: "10%", width: "40vw", height: "40vw", background: "rgba(139, 92, 246, 0.2)", borderRadius: "50%", filter: "blur(100px)", zIndex: 0 }} />
-      <div style={{ position: "absolute", bottom: "10%", right: "10%", width: "40vw", height: "40vw", background: "rgba(14, 165, 233, 0.2)", borderRadius: "50%", filter: "blur(100px)", zIndex: 0 }} />
+    <div style={{
+      minHeight: "calc(100vh - 61px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "2rem", position: "relative", overflow: "hidden"
+    }}>
+      {/* Background blobs */}
+      <div style={{ position: "absolute", top: "5%", left: "5%", width: "45vw", height: "45vw", background: "rgba(99,102,241,0.12)", borderRadius: "50%", filter: "blur(120px)", zIndex: 0, pointerEvents: "none" }} />
+      <div style={{ position: "absolute", bottom: "5%", right: "5%", width: "40vw", height: "40vw", background: "rgba(6,182,212,0.1)", borderRadius: "50%", filter: "blur(120px)", zIndex: 0, pointerEvents: "none" }} />
 
-      <div className="glass-panel" style={{ width: "100%", maxWidth: "450px", padding: "3rem", display: "flex", flexDirection: "column", gap: "2rem", position: "relative", zIndex: 10 }}>
-        
-        <div style={{ textAlign: "center" }}>
-          <div style={{ display: "inline-flex", background: "linear-gradient(135deg, var(--primary), var(--secondary))", padding: "1rem", borderRadius: "1rem", marginBottom: "1.5rem", boxShadow: "0 10px 25px -5px rgba(139, 92, 246, 0.5)" }}>
-            <LogIn size={36} color="white" />
+      <div style={{ position: "relative", zIndex: 10, width: "100%", maxWidth: "420px" }}>
+
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{ display: "inline-flex", padding: "1rem", borderRadius: "1.25rem", background: "linear-gradient(135deg, #6366f1, #4f46e5)", boxShadow: "0 12px 30px rgba(99,102,241,0.4)", marginBottom: "1.25rem" }}>
+            <Laptop2 size={32} color="white" />
           </div>
-          <h2 style={{ marginBottom: "0.5rem", fontWeight: "700", letterSpacing: "-0.5px" }}>{isRegistering ? "Crear Cuenta" : "Iniciar Sesión"}</h2>
-          <p style={{ color: "var(--text-muted)" }}>{isRegistering ? "Regístrate para solicitar material" : "Ingresa a tu cuenta escolar"}</p>
+          <h2 style={{ fontSize: "1.6rem", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "0.35rem" }}>
+            {isRegistering ? "Crear cuenta" : "Bienvenido/a"}
+          </h2>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
+            {isRegistering ? "Registrate para solicitar material escolar" : "Ingresá a TechSchool Inventory"}
+          </p>
         </div>
 
+        {/* Alerts */}
         {error && (
-          <div style={{ background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", padding: "1rem", borderRadius: "0.75rem", border: "1px solid rgba(239, 68, 68, 0.5)", textAlign: "center" }}>
+          <div className="alert alert-danger" style={{ marginBottom: "1.25rem" }}>
             {error}
           </div>
         )}
-        
         {successMsg && (
-          <div style={{ background: "rgba(16, 185, 129, 0.1)", color: "var(--success)", padding: "1rem", borderRadius: "0.75rem", border: "1px solid rgba(16, 185, 129, 0.5)", textAlign: "center" }}>
+          <div className="alert alert-success" style={{ marginBottom: "1.25rem" }}>
             {successMsg}
           </div>
         )}
 
-        <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          
-          {isRegistering && (
-            <>
-              <div>
-                <label style={{ display: "block", marginBottom: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: "500" }}>Nombre Completo</label>
-                <div style={{ position: "relative" }}>
-                  <User size={20} color="var(--text-muted)" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)" }} />
-                  <input 
-                    type="text" 
-                    placeholder="Prof. Juan Pérez"
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
-                    style={{ width: "100%", padding: "1rem 1rem 1rem 3rem", borderRadius: "0.75rem", background: "rgba(0, 0, 0, 0.2)", color: "white", border: "1px solid var(--border)", fontSize: "1rem" }}
-                  />
-                </div>
-              </div>
-              <div>
-                <label style={{ display: "block", marginBottom: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: "500" }}>Nombre de Usuario <span style={{fontSize: "0.8rem", color: "var(--primary)"}}>(Para ingreso rápido)</span></label>
-                <div style={{ position: "relative" }}>
-                  <User size={20} color="var(--text-muted)" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)" }} />
-                  <input 
-                    type="text" 
-                    placeholder="ej: profejuan"
-                    value={nombreUsuario}
-                    onChange={(e) => setNombreUsuario(e.target.value)}
-                    style={{ width: "100%", padding: "1rem 1rem 1rem 3rem", borderRadius: "0.75rem", background: "rgba(0, 0, 0, 0.2)", color: "white", border: "1px solid var(--border)", fontSize: "1rem" }}
-                  />
-                </div>
-              </div>
-            </>
-          )}
+        {/* Form */}
+        <div className="glass-panel" style={{ padding: "2rem" }}>
+          <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+            {isRegistering && (
+              <>
+                <InputField label="Nombre completo" icon={<User size={16} />} placeholder="Prof. Juan Pérez" value={nombre} onChange={setNombre} />
+                <InputField label="Nombre de usuario" icon={<User size={16} />} placeholder="profejuan (para ingreso rápido)" value={nombreUsuario} onChange={setNombreUsuario} />
+              </>
+            )}
 
-          <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: "500" }}>
-              {isRegistering ? "Correo Electrónico Oficial" : "Usuario o Correo Electrónico"}
-            </label>
-            <div style={{ position: "relative" }}>
-              <User size={20} color="var(--text-muted)" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)" }} />
-              <input 
-                type="text" 
-                placeholder={isRegistering ? "docente@escuela.edu" : "profejuan o docente@escuela.edu"}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{ width: "100%", padding: "1rem 1rem 1rem 3rem", borderRadius: "0.75rem", background: "rgba(0, 0, 0, 0.2)", color: "white", border: "1px solid var(--border)", fontSize: "1rem" }}
-              />
-            </div>
+            <InputField
+              label={isRegistering ? "Correo electrónico" : "Usuario o correo"}
+              icon={<Mail size={16} />}
+              type="text"
+              placeholder={isRegistering ? "docente@escuela.edu" : "profejuan o docente@escuela.edu"}
+              value={email}
+              onChange={setEmail}
+            />
+
+            <InputField label="Contraseña" icon={<Lock size={16} />} type="password" placeholder="••••••••" value={password} onChange={setPassword} />
+
+            <button type="submit" className="btn btn-primary" style={{ width: "100%", padding: "0.875rem", fontSize: "0.95rem", marginTop: "0.25rem" }}>
+              {isRegistering ? <><UserPlus size={17} /> Registrarme</> : <><LogIn size={17} /> Ingresar</>}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div style={{ position: "relative", textAlign: "center", margin: "1.5rem 0" }}>
+            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: "1px", background: "var(--border)" }} />
+            <span style={{ position: "relative", background: "var(--surface)", padding: "0 0.75rem", color: "var(--text-subtle)", fontSize: "0.75rem", fontWeight: "600", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              o continuar con
+            </span>
           </div>
 
-          <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem", fontWeight: "500" }}>Contraseña</label>
-            <div style={{ position: "relative" }}>
-              <Lock size={20} color="var(--text-muted)" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)" }} />
-              <input 
-                type="password" 
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={{ width: "100%", padding: "1rem 1rem 1rem 3rem", borderRadius: "0.75rem", background: "rgba(0, 0, 0, 0.2)", color: "white", border: "1px solid var(--border)", fontSize: "1rem" }}
-              />
-            </div>
-          </div>
-
-          <button type="submit" className="btn btn-primary" style={{ width: "100%", padding: "1rem", marginTop: "0.5rem", borderRadius: "0.75rem", fontSize: "1.1rem" }}>
-            {isRegistering ? "Registrarme" : "Ingresar"}
-          </button>
-        </form>
-
-        <div style={{ textAlign: "center" }}>
-          <button 
-            type="button" 
-            onClick={() => { setIsRegistering(!isRegistering); setError(""); setSuccessMsg(""); }} 
-            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.95rem", transition: "color 0.2s" }}
-            onMouseOver={(e) => e.currentTarget.style.color = "var(--primary)"}
-            onMouseOut={(e) => e.currentTarget.style.color = "var(--text-muted)"}>
-            {isRegistering ? "¿Ya tienes cuenta? Inicia Sesión" : "¿No tienes cuenta? Regístrate aquí"}
+          {/* Google login */}
+          <button
+            onClick={handleGoogleLogin}
+            style={{
+              width: "100%", padding: "0.75rem",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem",
+              background: "white", color: "#1e1b4b",
+              border: "none", borderRadius: "0.625rem",
+              fontFamily: "'Outfit', sans-serif", fontWeight: "700", fontSize: "0.9rem",
+              cursor: "pointer", transition: "opacity 0.2s, box-shadow 0.2s"
+            }}
+            onMouseOver={e => (e.currentTarget.style.boxShadow = "0 8px 24px rgba(255,255,255,0.15)")}
+            onMouseOut={e => (e.currentTarget.style.boxShadow = "none")}
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style={{ width: "18px", height: "18px" }} />
+            Acceso con Google
           </button>
         </div>
 
-        <div style={{ position: "relative", textAlign: "center", margin: "1rem 0" }}>
-          <hr style={{ borderColor: "var(--border)", borderStyle: "solid", borderBottomWidth: "0" }} />
-          <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "var(--surface)", padding: "0 1rem", color: "var(--text-muted)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "1px" }}>O continuar con</span>
+        {/* Toggle register/login */}
+        <div style={{ textAlign: "center", marginTop: "1.25rem" }}>
+          <button
+            type="button"
+            onClick={() => { setIsRegistering(!isRegistering); setError(""); setSuccessMsg(""); }}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.875rem", fontFamily: "'Outfit', sans-serif", transition: "color 0.2s" }}
+            onMouseOver={e => (e.currentTarget.style.color = "var(--primary-light)")}
+            onMouseOut={e => (e.currentTarget.style.color = "var(--text-muted)")}
+          >
+            {isRegistering ? "¿Ya tenés cuenta? Iniciá sesión" : "¿No tenés cuenta? Registrate aquí"}
+          </button>
         </div>
-
-        <button 
-          onClick={handleGoogleLogin} 
-          className="btn" 
-          style={{ width: "100%", padding: "1rem", background: "white", color: "#0f172a", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.75rem", borderRadius: "0.75rem", fontWeight: "600", transition: "transform 0.2s, box-shadow 0.2s" }}
-          onMouseOver={(e) => e.currentTarget.style.boxShadow = "0 10px 15px -3px rgba(255,255,255,0.2)"}
-          onMouseOut={(e) => e.currentTarget.style.boxShadow = "none"}>
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style={{ width: "20px", height: "20px" }} />
-          Acceso con Google
-        </button>
-
       </div>
     </div>
   );
